@@ -5,13 +5,14 @@ CONFIG_FILE = os.path.join(os.path.dirname(__file__), "config.json")
 
 DEFAULT_CONFIG = {
     "gemini_api_key": "",
-    "whatsapp_phone": "",
-    "whatsapp_api_key": "",
+    "telegram_bot_token": "",
+    "telegram_chat_id": "",
     "model_choice": "gemini-flash-latest",
     "watchlist": ["VOO", "QQQ", "SCHD", "AAPL"],
     "scan_interval_hours": 12,
     "auto_scan_enabled": False,
-    "last_scanned": {}
+    "last_scanned": {},
+    "admin_password": "admin123"
 }
 
 def load_config() -> dict:
@@ -32,10 +33,12 @@ def load_config() -> dict:
         if hasattr(st, "secrets"):
             if not cfg.get("gemini_api_key") and "GEMINI_API_KEY" in st.secrets:
                 cfg["gemini_api_key"] = st.secrets["GEMINI_API_KEY"]
-            if not cfg.get("whatsapp_phone") and "WHATSAPP_PHONE" in st.secrets:
-                cfg["whatsapp_phone"] = st.secrets["WHATSAPP_PHONE"]
-            if not cfg.get("whatsapp_api_key") and "WHATSAPP_API_KEY" in st.secrets:
-                cfg["whatsapp_api_key"] = st.secrets["WHATSAPP_API_KEY"]
+            if not cfg.get("telegram_bot_token") and "TELEGRAM_BOT_TOKEN" in st.secrets:
+                cfg["telegram_bot_token"] = st.secrets["TELEGRAM_BOT_TOKEN"]
+            if not cfg.get("telegram_chat_id") and "TELEGRAM_CHAT_ID" in st.secrets:
+                cfg["telegram_chat_id"] = st.secrets["TELEGRAM_CHAT_ID"]
+            if "ADMIN_PASSWORD" in st.secrets:
+                cfg["admin_password"] = st.secrets["ADMIN_PASSWORD"]
     except Exception:
         pass
 

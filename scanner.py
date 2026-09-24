@@ -3,7 +3,7 @@ import threading
 import datetime
 from config import load_config, save_config
 from analyzer import analyze_stock, get_stock_data
-from notifier import send_whatsapp_message, format_signal_for_whatsapp
+from notifier import send_telegram_message, format_signal_for_telegram
 
 _scanner_thread = None
 _scanner_running = False
@@ -19,11 +19,11 @@ def log_scan_event(message: str):
     save_config(cfg)
 
 def run_single_scan() -> list[str]:
-    """Runs a single pass across the watchlist and sends WhatsApp alerts for actionable signals."""
+    """Runs a single pass across the watchlist and sends Telegram alerts for actionable signals."""
     cfg = load_config()
     gemini_key = cfg.get("gemini_api_key", "").strip()
-    whatsapp_phone = cfg.get("whatsapp_phone", "").strip()
-    whatsapp_key = cfg.get("whatsapp_api_key", "").strip()
+    tg_bot_token = cfg.get("telegram_bot_token", "").strip()
+    tg_chat_id = cfg.get("telegram_chat_id", "").strip()
     watchlist = cfg.get("watchlist", [])
     model_choice = cfg.get("model_choice", "gemini-flash-latest")
     last_scanned = cfg.get("last_scanned", {})
@@ -32,7 +32,7 @@ def run_single_scan() -> list[str]:
         log_scan_event("Scan aborted: Gemini API key not configured.")
         return ["Gemini API key is missing."]
 
-    has_whatsapp = bool(whatsapp_phone and whatsapp_key)
+    has_telegram = bool(tg_bot_token and tg_chat_id)
     results = []
     now = time.time()
 
@@ -70,15 +70,15 @@ def run_single_scan() -> list[str]:
                 log_scan_event(f"🎯 Actionable BUY/DCA signal detected for {ticker} at {price_str}!")
                 results.append(f"{ticker}: BUY/ACCUMULATE signal detected.")
 
-                if has_whatsapp:
-                    wa_text = format_signal_for_whatsapp(ticker, analysis, current_price=price_str)
-                    success, msg = send_whatsapp_message(whatsapp_phone, whatsapp_key, wa_text)
+                if has_telegram:
+                    tg_text = format_signal_for_telegram(ticker, analysis, current_price=price_str)
+                    success, msg = send_telegram_message(tg_bot_token, tg_chat_id, tg_text)
                     if success:
-                        log_scan_event(f"✅ WhatsApp alert delivered for {ticker}.")
+                        log_scan_event(f"✅ Telegram alert delivered for {ticker}.")
                     else:
-                        log_scan_event(f"❌ Failed to deliver WhatsApp alert for {ticker}: {msg}")
+                        log_scan_event(f"❌ Failed to deliver Telegram alert for {ticker}: {msg}")
                 else:
-                    log_scan_event(f"ℹ️ WhatsApp not configured, signal saved to app log only.")
+                    log_scan_event(f"ℹ️ Telegram not configured, signal saved to app log only.")
 
                 # Update last scanned timestamp only on actionable alert
                 last_scanned[ticker] = now

@@ -1,72 +1,93 @@
 import requests
-import urllib.parse
 
-def send_whatsapp_message(phone: str, api_key: str, message: str) -> tuple[bool, str]:
+def send_telegram_message(bot_token: str, chat_id: str, message: str) -> tuple[bool, str]:
     """
-    Sends a WhatsApp message using the free CallMeBot API.
-    phone: Phone number with country code, e.g. +60123456789 or +14155552671
-    api_key: The API key received from CallMeBot on WhatsApp
-    message: The text to send
+    Sends a Telegram message using the Telegram Bot API.
+    bot_token: The bot token from @BotFather (e.g. 123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11)
+    chat_id: The chat ID of the recipient (user or group/channel)
+    message: The text to send (supports Markdown formatting)
     Returns (success: bool, response_text: str)
     """
-    if not phone or not api_key:
-        return False, "Phone number or CallMeBot API key is missing."
+    if not bot_token or not chat_id:
+        return False, "Telegram Bot Token or Chat ID is missing."
 
-    # Format phone number: remove spaces, dashes, parentheses
-    clean_phone = phone.strip().replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
-    if clean_phone.startswith("+"):
-        clean_phone = clean_phone[1:]  # CallMeBot expects without '+' or URL encoded
-
-    # Ensure message is URL-encoded
-    encoded_message = urllib.parse.quote(message)
-    url = f"https://api.callmebot.com/whatsapp.php?phone={clean_phone}&text={encoded_message}&apikey={api_key}"
+    url = f"https://api.telegram.org/bot{bot_token.strip()}/sendMessage"
+    payload = {
+        "chat_id": chat_id.strip(),
+        "text": message,
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": True
+    }
 
     try:
-        response = requests.get(url, timeout=15)
-        # CallMeBot returns HTTP 200 with text like "Message queued" or "Message sent"
-        if response.status_code == 200 and ("queued" in response.text.lower() or "success" in response.text.lower() or "sent" in response.text.lower()):
-            return True, "WhatsApp alert sent successfully!"
-        elif response.status_code == 200:
-            return True, f"Server responded: {response.text.strip()}"
+        response = requests.post(url, json=payload, timeout=15)
+        data = response.json()
+        if data.get("ok"):
+            return True, "Telegram alert sent successfully!"
         else:
-            return False, f"Failed (HTTP {response.status_code}): {response.text.strip()}"
+            error_desc = data.get("description", "Unknown error")
+            return False, f"Telegram API Error: {error_desc}"
     except Exception as e:
         return False, f"Connection error: {str(e)}"
 
-def format_signal_for_whatsapp(ticker: str, signal_text: str, current_price="N/A") -> str:
-    """Formats an AI analysis report into a compact, WhatsApp-friendly alert."""
-    summary_lines = []
-    summary_lines.append(f"🚨 *MOOMOO LONG-TERM SIGNAL: {ticker}* 🚨")
-    if current_price != "N/A":
-        summary_lines.append(f"💰 Current Price: {current_price}")
-    summary_lines.append("──────────────────────")
-    
-    # Extract verdict or first few bullet points if possible
-    # We truncate if too long for WhatsApp readability (CallMeBot handles up to ~1500 chars well)
-    clean_text = signal_text.replace("**", "*")  # Convert standard markdown bold to WhatsApp bold
-    if len(clean_text) > 1200:
-        clean_text = clean_text[:1150] + "...\n\n_(View full report in Web App)_"
 
-    summary_lines.append(clean_text)
-    summary_lines.append("──────────────────────")
-    summary_lines.append("📱 _Check your Moomoo app for order execution._")
-    
-    return "\n".join(summary_lines)
+def get_telegram_chat_id(bot_token: str) -> tuple[bool, str]:
+    """
+    Fetches the chat ID from the most recent message sent to the bot.
+    User must send any message to the bot first, then call this to auto-detect the chat ID.
+    """
+    if not bot_token:
+        return False, "Bot token is missing."
 
-def format_mt5_signal_for_whatsapp(asset_label: str, signal_text: str, current_price="N/A") -> str:
-    """Formats an MT5 trade setup (Entry, SL, TP1, TP2) cleanly for WhatsApp."""
-    summary_lines = []
-    summary_lines.append(f"⚡ *MT5 SHORT-TERM TRADE SIGNAL: {asset_label}* ⚡")
+    url = f"https://api.telegram.org/bot{bot_token.strip()}/getUpdates"
+    try:
+        response = requests.get(url, timeout=10)
+        data = response.json()
+        if data.get("ok") and data.get("result"):
+            # Get the most recent message's chat ID
+            latest = data["result"][-1]
+            chat = latest.get("message", {}).get("chat", {})
+            chat_id = str(chat.get("id", ""))
+            chat_name = chat.get("first_name", "") or chat.get("title", "Unknown")
+            if chat_id:
+                return True, f"{chat_id}|{chat_name}"
+        return False, "No messages found. Please send any message to your bot first, then try again."
+    except Exception as e:
+        return False, f"Error: {str(e)}"
+
+
+def format_signal_for_telegram(ticker: str, signal_text: str, current_price="N/A") -> str:
+    """Formats an AI analysis report into a compact Telegram-friendly alert."""
+    lines = []
+    lines.append(f"🚨 *LONG-TERM SIGNAL: {ticker}* 🚨")
     if current_price != "N/A":
-        summary_lines.append(f"💵 Market Price: {current_price}")
-    summary_lines.append("──────────────────────")
+        lines.append(f"💰 Current Price: {current_price}")
+    lines.append("━━━━━━━━━━━━━━━━━━━━")
+
+    clean_text = signal_text.replace("**", "*")
+    if len(clean_text) > 3500:
+        clean_text = clean_text[:3400] + "\n\n_(View full report in Web App)_"
+
+    lines.append(clean_text)
+    lines.append("━━━━━━━━━━━━━━━━━━━━")
+    lines.append("📱 _Check your broker app for order execution._")
+
+    return "\n".join(lines)
+
+
+def format_mt5_signal_for_telegram(asset_label: str, signal_text: str, current_price="N/A") -> str:
+    """Formats an MT5 trade setup (Entry, SL, TP1, TP2) cleanly for Telegram."""
+    lines = []
+    lines.append(f"⚡ *MT5 TRADE SIGNAL: {asset_label}* ⚡")
+    if current_price != "N/A":
+        lines.append(f"💵 Market Price: {current_price}")
+    lines.append("━━━━━━━━━━━━━━━━━━━━")
 
     clean_text = signal_text.replace("**", "*").replace("### ", "").replace("## ", "")
-    if len(clean_text) > 1300:
-        clean_text = clean_text[:1250] + "...\n\n_(View full trade card in Web App)_"
+    if len(clean_text) > 3500:
+        clean_text = clean_text[:3400] + "\n\n_(View full trade card in Web App)_"
 
-    summary_lines.append(clean_text)
-    summary_lines.append("──────────────────────")
-    summary_lines.append("⚠️ _Risk rule: Max 1-2% account balance. Set Stop Loss immediately on MT5._")
-    return "\n".join(summary_lines)
-
+    lines.append(clean_text)
+    lines.append("━━━━━━━━━━━━━━━━━━━━")
+    lines.append("⚠️ _Risk rule: Max 1-2% account balance. Set Stop Loss immediately on MT5._")
+    return "\n".join(lines)
