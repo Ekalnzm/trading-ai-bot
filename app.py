@@ -127,76 +127,108 @@ with st.sidebar:
     )
 
     st.divider()
-    st.header("🧠 AI Model Settings")
-    gemini_key = st.text_input(
-        "Gemini API Key",
-        value=cfg.get("gemini_api_key", ""),
-        type="password",
-        help="Google Gemini API key (Free tier works great!)"
-    )
-    st.markdown("[🔑 Get free Gemini key](https://aistudio.google.com/app/apikey)")
+    st.header("🧠 AI Signal Engine")
+    
+    # Master Gemini Key is kept securely on the server backend
+    master_key = cfg.get("gemini_api_key", "").strip()
+    
+    if master_key:
+        st.success("🤖 **AI Engine: Online & Automated**")
+        st.caption("Powered by Google Gemini. Signals are generated automatically for all visitors without requiring their own API key.")
+        gemini_key = master_key
+    else:
+        st.warning("⚠️ Master API key not configured yet.")
+        gemini_input = st.text_input("Enter Master Gemini API Key", type="password")
+        gemini_key = gemini_input.strip()
+        if st.button("Save Master Key", use_container_width=True):
+            if gemini_key:
+                cfg["gemini_api_key"] = gemini_key
+                save_config(cfg)
+                st.success("Master key saved!")
+                st.rerun()
 
+    # Model selector (visitors can pick speed/reasoning, but not see the key)
     available_models = ["gemini-flash-latest", "gemini-3.8-flash", "gemini-3.6-flash"]
     saved_model = cfg.get("model_choice", "gemini-flash-latest")
     default_model_idx = available_models.index(saved_model) if saved_model in available_models else 0
 
     model_choice = st.selectbox(
-        "AI Model",
+        "AI Analysis Speed",
         options=available_models,
         index=default_model_idx,
-        help="gemini-flash-latest is recommended (auto-updates to Google's newest high-speed flash model with free-tier quota)."
+        help="Automated AI model selection."
     )
 
     st.divider()
-    st.header("📱 WhatsApp Alert Setup")
-    
-    with st.expander("📖 1-Minute WhatsApp Setup Guide", expanded=not bool(cfg.get("whatsapp_api_key"))):
+    st.header("📱 Receive WhatsApp Trade Alerts")
+    st.caption("Connect your personal phone to get automated buy/sell signals delivered directly to your WhatsApp:")
+
+    with st.expander("📖 1-Minute WhatsApp Setup Guide", expanded=not bool(st.session_state.get("visitor_wa_phone"))):
         st.markdown("""
         **Free CallMeBot Activation:**
         1. Add this number to your phone contacts:  
            `+34 644 44 48 48`
         2. Open WhatsApp and send this message:  
            `I allow callmebot to send me messages`
-        3. The bot will instantly reply with your **API Key**.
+        3. The bot will instantly reply with your personal **API Key**.
         4. Enter your phone number (with country code) and that API Key below.
         """)
 
-    wa_phone = st.text_input(
+    # Visitor can enter their own phone credentials in session state
+    default_wa_phone = cfg.get("whatsapp_phone", "")
+    default_wa_key = cfg.get("whatsapp_api_key", "")
+
+    wa_phone_input = st.text_input(
         "Your WhatsApp Number",
-        value=cfg.get("whatsapp_phone", ""),
+        value=st.session_state.get("visitor_wa_phone", default_wa_phone),
         placeholder="+60123456789 or +14155552671",
         help="Include country code, e.g. +60 for Malaysia, +65 for Singapore, +1 for US."
     )
-    wa_key = st.text_input(
-        "CallMeBot WhatsApp API Key",
-        value=cfg.get("whatsapp_api_key", ""),
+    wa_key_input = st.text_input(
+        "Your CallMeBot API Key",
+        value=st.session_state.get("visitor_wa_key", default_wa_key),
         type="password",
         placeholder="e.g. 123456"
     )
 
-    col_save, col_test = st.columns(2)
-    if col_save.button("💾 Save Settings", use_container_width=True):
-        cfg["gemini_api_key"] = gemini_key.strip()
-        cfg["model_choice"] = model_choice
-        cfg["whatsapp_phone"] = wa_phone.strip()
-        cfg["whatsapp_api_key"] = wa_key.strip()
-        save_config(cfg)
-        st.success("Settings saved!")
+    st.session_state["visitor_wa_phone"] = wa_phone_input.strip()
+    st.session_state["visitor_wa_key"] = wa_key_input.strip()
+    wa_phone = wa_phone_input.strip()
+    wa_key = wa_key_input.strip()
 
-    if col_test.button("🧪 Test Alert", use_container_width=True):
+    col_test, col_save = st.columns(2)
+    if col_test.button("🧪 Test My WhatsApp", use_container_width=True):
         if not wa_phone or not wa_key:
-            st.error("Please enter both your WhatsApp phone and API key first.")
+            st.error("Please enter both your phone number and CallMeBot API key.")
         else:
-            with st.spinner("Sending test WhatsApp message..."):
+            with st.spinner("Sending test alert..."):
                 ok, resp = send_whatsapp_message(
                     wa_phone,
                     wa_key,
-                    "🔔 *Test Alert from AI Signal Bot!* Your WhatsApp integration is working successfully."
+                    "🔔 *Welcome to AI Trading Alerts!* Your WhatsApp is now connected to receive automated signals."
                 )
                 if ok:
                     st.success("Test alert sent! Check your WhatsApp.")
                 else:
                     st.error(f"Failed to send: {resp}")
+
+    if col_save.button("💾 Save as Default", use_container_width=True):
+        if wa_phone and wa_key:
+            cfg["whatsapp_phone"] = wa_phone
+            cfg["whatsapp_api_key"] = wa_key
+            save_config(cfg)
+            st.success("Saved as default alert recipient!")
+
+    # Collapsed Admin Area for Owner Only
+    with st.expander("🔐 Admin System Settings (Owner Only)"):
+        st.caption("Change master Gemini API key or backend parameters:")
+        new_admin_key = st.text_input("Replace Master Gemini Key", type="password", placeholder="Enter new Gemini API key")
+        if st.button("Update Admin Key", use_container_width=True):
+            if new_admin_key.strip():
+                cfg["gemini_api_key"] = new_admin_key.strip()
+                save_config(cfg)
+                st.success("Master key updated!")
+                st.rerun()
 
     st.divider()
     st.header("🤖 Automated Moomoo Scanner")
