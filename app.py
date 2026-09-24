@@ -9,7 +9,7 @@ from short_term_analyzer import (
     MT5_ASSET_MAP
 )
 from config import load_config, save_config
-from notifier import send_whatsapp_message, format_signal_for_whatsapp, format_mt5_signal_for_whatsapp
+from notifier import send_telegram_message, get_telegram_chat_id, format_signal_for_telegram, format_mt5_signal_for_telegram
 from scanner import (
     start_background_scanner,
     stop_background_scanner,
@@ -109,192 +109,207 @@ def get_tv_symbol_for_stock(ticker: str) -> str:
     return t
 
 # ----------------- SIDEBAR CONFIGURATION -----------------
+st.session_state.setdefault("is_admin", False)
+
+# ----------------- SIDEBAR CONFIGURATION (DUAL-VIEW) -----------------
 with st.sidebar:
-    st.header("⚙️ Terminal Settings")
-    
-    # Theme Selection (Both Dark & Light options)
-    theme = st.selectbox(
-        "🎨 Chart & Terminal Theme",
-        options=["dark", "light"],
-        index=0,
-        format_func=lambda x: "🌙 Dark Mode (Pro Desk)" if x == "dark" else "☀️ Light Mode"
-    )
-
-    auto_refresh_signals = st.checkbox(
-        "🔴 Live Auto-Refresh (Every 30s)",
-        value=False,
-        help="Periodically updates technical metrics and AI signals."
-    )
-
-    st.divider()
-    st.header("🧠 AI Signal Engine")
-    
-    # Master Gemini Key is kept securely on the server backend
-    master_key = cfg.get("gemini_api_key", "").strip()
-    
-    if master_key:
-        st.success("🤖 **AI Engine: Online & Automated**")
-        st.caption("Powered by Google Gemini. Signals are generated automatically for all visitors without requiring their own API key.")
-        gemini_key = master_key
-    else:
-        st.warning("⚠️ Master API key not configured yet.")
-        gemini_input = st.text_input("Enter Master Gemini API Key", type="password")
-        gemini_key = gemini_input.strip()
-        if st.button("Save Master Key", use_container_width=True):
-            if gemini_key:
-                cfg["gemini_api_key"] = gemini_key
-                save_config(cfg)
-                st.success("Master key saved!")
-                st.rerun()
-
-    # Model selector (visitors can pick speed/reasoning, but not see the key)
-    available_models = ["gemini-flash-latest", "gemini-3.8-flash", "gemini-3.6-flash"]
-    saved_model = cfg.get("model_choice", "gemini-flash-latest")
-    default_model_idx = available_models.index(saved_model) if saved_model in available_models else 0
-
-    model_choice = st.selectbox(
-        "AI Analysis Speed",
-        options=available_models,
-        index=default_model_idx,
-        help="Automated AI model selection."
-    )
-
-    st.divider()
-    st.header("📱 Receive WhatsApp Trade Alerts")
-    st.caption("Connect your personal phone to get automated buy/sell signals delivered directly to your WhatsApp:")
-
-    with st.expander("📖 1-Minute WhatsApp Setup Guide", expanded=not bool(st.session_state.get("visitor_wa_phone"))):
-        st.markdown("""
-        **Free CallMeBot Activation:**
-        1. Add this number to your phone contacts:  
-           `+34 644 44 48 48`
-        2. Open WhatsApp and send this message:  
-           `I allow callmebot to send me messages`
-        3. The bot will instantly reply with your personal **API Key**.
-        4. Enter your phone number (with country code) and that API Key below.
-        """)
-
-    # Visitor can enter their own phone credentials in session state
-    default_wa_phone = cfg.get("whatsapp_phone", "")
-    default_wa_key = cfg.get("whatsapp_api_key", "")
-
-    wa_phone_input = st.text_input(
-        "Your WhatsApp Number",
-        value=st.session_state.get("visitor_wa_phone", default_wa_phone),
-        placeholder="+60123456789 or +14155552671",
-        help="Include country code, e.g. +60 for Malaysia, +65 for Singapore, +1 for US."
-    )
-    wa_key_input = st.text_input(
-        "Your CallMeBot API Key",
-        value=st.session_state.get("visitor_wa_key", default_wa_key),
-        type="password",
-        placeholder="e.g. 123456"
-    )
-
-    st.session_state["visitor_wa_phone"] = wa_phone_input.strip()
-    st.session_state["visitor_wa_key"] = wa_key_input.strip()
-    wa_phone = wa_phone_input.strip()
-    wa_key = wa_key_input.strip()
-
-    col_test, col_save = st.columns(2)
-    if col_test.button("🧪 Test My WhatsApp", use_container_width=True):
-        if not wa_phone or not wa_key:
-            st.error("Please enter both your phone number and CallMeBot API key.")
+    # ------------------ ADMIN MODE ------------------
+    if st.session_state["is_admin"]:
+        st.header("👑 Admin Control Center")
+        if st.button("🚪 Log Out of Admin", use_container_width=True):
+            st.session_state["is_admin"] = False
+            st.rerun()
+            
+        st.divider()
+        st.subheader("🧠 Master Gemini AI Configuration")
+        current_master_key = cfg.get("gemini_api_key", "").strip()
+        if current_master_key:
+            masked_key = current_master_key[:6] + "..." + current_master_key[-4:]
+            st.success(f"Master Key Active: `{masked_key}`")
         else:
-            with st.spinner("Sending test alert..."):
-                ok, resp = send_whatsapp_message(
-                    wa_phone,
-                    wa_key,
-                    "🔔 *Welcome to AI Trading Alerts!* Your WhatsApp is now connected to receive automated signals."
-                )
-                if ok:
-                    st.success("Test alert sent! Check your WhatsApp.")
-                else:
-                    st.error(f"Failed to send: {resp}")
+            st.error("No master Gemini API key set!")
 
-    if col_save.button("💾 Save as Default", use_container_width=True):
-        if wa_phone and wa_key:
-            cfg["whatsapp_phone"] = wa_phone
-            cfg["whatsapp_api_key"] = wa_key
+        new_key = st.text_input("Update Master Gemini Key", type="password", placeholder="Paste new key")
+        
+        available_models = ["gemini-flash-latest", "gemini-3.8-flash", "gemini-3.6-flash"]
+        saved_model = cfg.get("model_choice", "gemini-flash-latest")
+        default_model_idx = available_models.index(saved_model) if saved_model in available_models else 0
+        admin_model_choice = st.selectbox("Default AI Model", options=available_models, index=default_model_idx)
+
+        if st.button("💾 Save AI Settings", use_container_width=True):
+            if new_key.strip():
+                cfg["gemini_api_key"] = new_key.strip()
+            cfg["model_choice"] = admin_model_choice
             save_config(cfg)
-            st.success("Saved as default alert recipient!")
-
-    # Collapsed Admin Area for Owner Only
-    with st.expander("🔐 Admin System Settings (Owner Only)"):
-        st.caption("Change master Gemini API key or backend parameters:")
-        new_admin_key = st.text_input("Replace Master Gemini Key", type="password", placeholder="Enter new Gemini API key")
-        if st.button("Update Admin Key", use_container_width=True):
-            if new_admin_key.strip():
-                cfg["gemini_api_key"] = new_admin_key.strip()
-                save_config(cfg)
-                st.success("Master key updated!")
-                st.rerun()
-
-    st.divider()
-    st.header("🤖 Automated Moomoo Scanner")
-    scanner_active = is_scanner_running()
-
-    if scanner_active:
-        st.success("🟢 Scanner Status: **ACTIVE (Monitoring)**")
-        if st.button("⏹️ Stop Automated Alerts", use_container_width=True):
-            stop_background_scanner()
+            st.success("Admin AI settings saved!")
             st.rerun()
-    else:
-        st.info("⚪ Scanner Status: **STOPPED**")
-        if st.button("▶️ Start Automated Alerts", type="primary", use_container_width=True):
-            if not gemini_key:
-                st.error("Please enter your Gemini API key before starting the scanner.")
-            elif not wa_phone or not wa_key:
-                st.warning("WhatsApp credentials not set! Scanner will run in app-only mode.")
-                start_background_scanner()
-                st.rerun()
+
+        st.divider()
+        st.subheader("📬 Master Telegram Alert Destination")
+        admin_tg_token = st.text_input("Bot Token (@BotFather)", value=cfg.get("telegram_bot_token", ""), type="password")
+        admin_tg_chat_id = st.text_input("Chat ID", value=cfg.get("telegram_chat_id", ""), placeholder="e.g. 123456789")
+        
+        if st.button("🔍 Auto-Detect My Chat ID", use_container_width=True):
+            if admin_tg_token:
+                with st.spinner("Checking for messages sent to your bot..."):
+                    ok, result = get_telegram_chat_id(admin_tg_token.strip())
+                    if ok:
+                        detected_id, detected_name = result.split("|", 1)
+                        cfg["telegram_chat_id"] = detected_id
+                        save_config(cfg)
+                        st.success(f"Chat ID detected: `{detected_id}` ({detected_name})")
+                        st.rerun()
+                    else:
+                        st.error(result)
             else:
-                cfg["gemini_api_key"] = gemini_key.strip()
-                cfg["whatsapp_phone"] = wa_phone.strip()
-                cfg["whatsapp_api_key"] = wa_key.strip()
-                save_config(cfg)
+                st.error("Enter your Bot Token first.")
+
+        col_adm_test, col_adm_save = st.columns(2)
+        if col_adm_test.button("🧪 Test Alert", use_container_width=True):
+            if admin_tg_token and admin_tg_chat_id:
+                with st.spinner("Sending Telegram test..."):
+                    ok, resp = send_telegram_message(admin_tg_token, admin_tg_chat_id, "🔔 *Admin Alert Test:* Telegram connection verified! ✅")
+                    if ok:
+                        st.success("Test alert delivered to Telegram!")
+                    else:
+                        st.error(resp)
+            else:
+                st.error("Enter both Bot Token & Chat ID.")
+
+        if col_adm_save.button("💾 Save Telegram", use_container_width=True):
+            cfg["telegram_bot_token"] = admin_tg_token.strip()
+            cfg["telegram_chat_id"] = admin_tg_chat_id.strip()
+            save_config(cfg)
+            st.success("Telegram settings saved!")
+
+        st.divider()
+        st.subheader("🤖 Automated Background Scanner")
+        scanner_active = is_scanner_running()
+
+        if scanner_active:
+            st.success("🟢 Scanner: **MONITORING ACTIVE**")
+            if st.button("⏹️ Stop Automated Alerts", use_container_width=True):
+                stop_background_scanner()
+                st.rerun()
+        else:
+            st.info("⚪ Scanner: **STOPPED**")
+            if st.button("▶️ Start Automated Alerts", type="primary", use_container_width=True):
                 start_background_scanner()
                 st.rerun()
 
-    # Watchlist config
-    st.subheader("📋 Long-Term Watchlist")
-    raw_watchlist = st.text_input(
-        "Watchlist (comma-separated)",
-        value=", ".join(cfg.get("watchlist", ["VOO", "QQQ", "SCHD", "AAPL"]))
-    )
-    new_watchlist = [t.strip().upper() for t in raw_watchlist.split(",") if t.strip()]
-    
-    interval = st.selectbox(
-        "Scan Frequency",
-        options=[4, 8, 12, 24],
-        index=[4, 8, 12, 24].index(cfg.get("scan_interval_hours", 12)),
-        format_func=lambda x: f"Every {x} hours"
-    )
+        # Watchlist editor
+        raw_watchlist = st.text_input("Watchlist (comma-separated)", value=", ".join(cfg.get("watchlist", ["VOO", "QQQ", "SCHD", "AAPL"])))
+        interval = st.selectbox("Scan Frequency", options=[4, 8, 12, 24], index=[4, 8, 12, 24].index(cfg.get("scan_interval_hours", 12)), format_func=lambda x: f"Every {x} hours")
 
-    if st.button("Update Watchlist & Frequency", use_container_width=True):
-        cfg["watchlist"] = new_watchlist
-        cfg["scan_interval_hours"] = interval
-        save_config(cfg)
-        st.success("Watchlist updated!")
-
-    if st.button("⚡ Run Scan Now (Test Run)", use_container_width=True):
-        with st.spinner("Scanning watchlist assets now..."):
-            cfg["gemini_api_key"] = gemini_key.strip()
-            cfg["whatsapp_phone"] = wa_phone.strip()
-            cfg["whatsapp_api_key"] = wa_key.strip()
-            cfg["model_choice"] = model_choice
+        if st.button("Update Watchlist & Frequency", use_container_width=True):
+            cfg["watchlist"] = [t.strip().upper() for t in raw_watchlist.split(",") if t.strip()]
+            cfg["scan_interval_hours"] = interval
             save_config(cfg)
-            results = run_single_scan()
-            st.write(results)
-            st.rerun()
+            st.success("Watchlist updated!")
 
-    with st.expander("📜 Scanner Activity Log"):
-        logs = cfg.get("scanner_logs", [])
-        if logs:
+        if st.button("⚡ Run Scan Now", use_container_width=True):
+            with st.spinner("Scanning now..."):
+                results = run_single_scan()
+                st.write(results)
+                st.rerun()
+
+        with st.expander("📜 Scanner Activity Log"):
+            logs = cfg.get("scanner_logs", [])
             for l in logs[:15]:
                 st.caption(l)
-        else:
-            st.caption("No scanner activity logged yet.")
+
+        st.divider()
+        st.subheader("🔑 Change Admin Password")
+        new_pass = st.text_input("New Admin Password", type="password")
+        if st.button("Update Password", use_container_width=True):
+            if new_pass.strip():
+                cfg["admin_password"] = new_pass.strip()
+                save_config(cfg)
+                st.success("Admin password updated!")
+
+    # ------------------ PUBLIC VISITOR MODE ------------------
+    else:
+        st.header("⚙️ Terminal Settings")
+        
+        theme = st.selectbox(
+            "🎨 Chart & Terminal Theme",
+            options=["dark", "light"],
+            index=0,
+            format_func=lambda x: "🌙 Dark Mode (Pro Desk)" if x == "dark" else "☀️ Light Mode"
+        )
+
+        auto_refresh_signals = st.checkbox(
+            "🔴 Live Auto-Refresh (Every 30s)",
+            value=False,
+            help="Periodically updates technical metrics and AI signals."
+        )
+
+        st.divider()
+        st.header("🧠 AI Trading Engine")
+        st.success("🤖 **AI Status: Online & Automated**")
+        st.caption("Powered by Google Gemini Flash. Signals and risk calculations are processed automatically without exposing any backend keys.")
+
+        model_choice = cfg.get("model_choice", "gemini-flash-latest")
+
+        st.divider()
+        st.header("📱 Receive Alerts on Your WhatsApp")
+        st.caption("Enter your phone number below if you'd like signals sent directly to your phone:")
+
+        with st.expander("📖 Free WhatsApp Setup (30 Seconds)"):
+            st.markdown("""
+            1. Save this number to your phone contacts: `+34 684 73 40 44`
+            2. Send WhatsApp message: `I allow callmebot to send me messages`
+            3. The bot will reply with your personal **API Key**.
+            4. Enter your phone number and that API Key below.
+            """)
+
+        visitor_phone = st.text_input(
+            "Your WhatsApp Number",
+            value=st.session_state.get("visitor_wa_phone", ""),
+            placeholder="+60123456789 or +1...",
+            help="Include country code"
+        )
+        visitor_key = st.text_input(
+            "Your CallMeBot API Key",
+            value=st.session_state.get("visitor_wa_key", ""),
+            type="password",
+            placeholder="e.g. 123456"
+        )
+
+        st.session_state["visitor_wa_phone"] = visitor_phone.strip()
+        st.session_state["visitor_wa_key"] = visitor_key.strip()
+
+        if st.button("🧪 Test My WhatsApp Connection", use_container_width=True):
+            if visitor_phone and visitor_key:
+                with st.spinner("Sending test alert..."):
+                    ok, resp = send_whatsapp_message(visitor_phone, visitor_key, "🔔 *AI Trading Terminal:* Your WhatsApp is connected to receive live signals!")
+                    if ok:
+                        st.success("Test alert sent to your phone! Check WhatsApp.")
+                    else:
+                        st.error(f"Error: {resp}")
+            else:
+                st.error("Please enter both your phone number and CallMeBot key.")
+
+        # Discrete Admin Login at bottom
+        st.divider()
+        with st.expander("🔐 Admin Login"):
+            admin_input = st.text_input("Admin Password", type="password", placeholder="Enter password")
+            if st.button("Log In as Admin", use_container_width=True):
+                correct_pass = cfg.get("admin_password", "admin123")
+                if admin_input == correct_pass:
+                    st.session_state["is_admin"] = True
+                    st.success("Access granted!")
+                    st.rerun()
+                else:
+                    st.error("Incorrect password.")
+
+# Set active credentials for analysis
+active_gemini_key = cfg.get("gemini_api_key", "").strip()
+active_model_choice = cfg.get("model_choice", "gemini-flash-latest")
+theme = "dark" if "theme" not in locals() else theme
+auto_refresh_signals = False if "auto_refresh_signals" not in locals() else auto_refresh_signals
+active_wa_phone = st.session_state.get("visitor_wa_phone", cfg.get("whatsapp_phone", "")).strip()
+active_wa_key = st.session_state.get("visitor_wa_key", cfg.get("whatsapp_api_key", "")).strip()
 
 # ----------------- MAIN HEADER & LIVE TICKER TAPE -----------------
 st.title("📈 AI Trading Terminal: Live Real-Time Watching")
@@ -424,14 +439,13 @@ with tab_longterm:
 
     # Handle Long-Term Analysis
     if analyze_lt_btn:
-        active_key = gemini_key.strip()
-        if not active_key:
-            st.error("🔑 Please enter your Gemini API Key in the left sidebar.")
+        if not active_gemini_key:
+            st.error("🔑 AI Engine is offline. (Admin: Please configure the master Gemini key).")
         elif not ticker_lt:
             st.error("Please enter a stock ticker.")
         else:
             with st.spinner(f"Analyzing {ticker_lt} fundamentals and news..."):
-                result_lt = analyze_stock(ticker_lt, active_key, model_choice=model_choice)
+                result_lt = analyze_stock(ticker_lt, active_gemini_key, model_choice=active_model_choice)
                 st.session_state[f"last_analysis_{ticker_lt}"] = result_lt
 
     if f"last_analysis_{ticker_lt}" in st.session_state:
@@ -442,13 +456,13 @@ with tab_longterm:
             st.subheader(f"🤖 Long-Term Investment Verdict: {ticker_lt}")
         with col_btn_fwd:
             if st.button("📲 Forward to WhatsApp", key="fwd_lt", use_container_width=True):
-                if not wa_phone or not wa_key:
-                    st.error("Configure WhatsApp number & API key in sidebar first!")
+                if not active_wa_phone or not active_wa_key:
+                    st.error("Enter your WhatsApp phone number and CallMeBot API key in the sidebar first!")
                 else:
                     wa_msg = format_signal_for_whatsapp(ticker_lt, res)
-                    ok, msg = send_whatsapp_message(wa_phone, wa_key, wa_msg)
+                    ok, msg = send_whatsapp_message(active_wa_phone, active_wa_key, wa_msg)
                     if ok:
-                        st.success("Forwarded to WhatsApp! 📱")
+                        st.success("Forwarded to your WhatsApp! 📱")
                     else:
                         st.error(f"WhatsApp Error: {msg}")
         st.markdown(res)
@@ -561,16 +575,15 @@ with tab_shortterm:
 
     # Generate MT5 Trade Signal
     if run_mt5_btn:
-        active_key = gemini_key.strip()
-        if not active_key:
-            st.error("🔑 Please enter your Gemini API Key in the left sidebar.")
+        if not active_gemini_key:
+            st.error("🔑 AI Engine is offline. (Admin: Please configure the master Gemini key).")
         else:
             with st.spinner(f"Analyzing {asset_choice} live action, news, RSI, ATR, and momentum on {timeframe} timeframe..."):
                 mt5_result = analyze_short_term_trade(
                     mt5_ticker,
                     asset_choice,
-                    active_key,
-                    model_choice=model_choice,
+                    active_gemini_key,
+                    model_choice=active_model_choice,
                     timeframe=timeframe
                 )
                 st.session_state[f"last_mt5_{mt5_ticker}"] = mt5_result
@@ -583,14 +596,14 @@ with tab_shortterm:
             st.subheader(f"🎯 Actionable MT5 Trade Setup: {asset_choice}")
         with col_btn_fwd:
             if st.button("📲 Forward Setup to WhatsApp", key="fwd_mt5", use_container_width=True):
-                if not wa_phone or not wa_key:
-                    st.error("Configure WhatsApp credentials in sidebar first!")
+                if not active_wa_phone or not active_wa_key:
+                    st.error("Enter your WhatsApp phone number and CallMeBot API key in the sidebar first!")
                 else:
                     live_p = technicals.get("current_price", "N/A") if 'technicals' in locals() and technicals else "N/A"
                     wa_mt5_msg = format_mt5_signal_for_whatsapp(asset_choice, res_mt5, current_price=str(live_p))
-                    ok, msg = send_whatsapp_message(wa_phone, wa_key, wa_mt5_msg)
+                    ok, msg = send_whatsapp_message(active_wa_phone, active_wa_key, wa_mt5_msg)
                     if ok:
-                        st.success("Trade setup forwarded to WhatsApp! 📱")
+                        st.success("Trade setup forwarded to your WhatsApp! 📱")
                     else:
                         st.error(f"WhatsApp Error: {msg}")
         
