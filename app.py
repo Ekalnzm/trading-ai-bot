@@ -252,43 +252,58 @@ with st.sidebar:
         model_choice = cfg.get("model_choice", "gemini-flash-latest")
 
         st.divider()
-        st.header("📱 Receive Alerts on Your WhatsApp")
-        st.caption("Enter your phone number below if you'd like signals sent directly to your phone:")
+        st.header("📬 Receive Alerts on Telegram")
+        st.caption("Get AI trade signals delivered instantly to your Telegram:")
 
-        with st.expander("📖 Free WhatsApp Setup (30 Seconds)"):
+        with st.expander("📖 Quick Telegram Setup (2 Minutes)"):
             st.markdown("""
-            1. Save this number to your phone contacts: `+34 684 73 40 44`
-            2. Send WhatsApp message: `I allow callmebot to send me messages`
-            3. The bot will reply with your personal **API Key**.
-            4. Enter your phone number and that API Key below.
+            **One-time setup to receive trade alerts on your phone:**
+            1. Open Telegram → search **@BotFather** → send `/newbot`
+            2. Choose a name & username for your bot
+            3. BotFather gives you a **Bot Token** — paste it below
+            4. Open your new bot in Telegram → press **Start** → send any message
+            5. Click **🔍 Auto-Detect Chat ID** below to find your Chat ID automatically
             """)
 
-        visitor_phone = st.text_input(
-            "Your WhatsApp Number",
-            value=st.session_state.get("visitor_wa_phone", ""),
-            placeholder="+60123456789 or +1...",
-            help="Include country code"
-        )
-        visitor_key = st.text_input(
-            "Your CallMeBot API Key",
-            value=st.session_state.get("visitor_wa_key", ""),
+        visitor_tg_token = st.text_input(
+            "Your Telegram Bot Token",
+            value=st.session_state.get("visitor_tg_token", ""),
             type="password",
-            placeholder="e.g. 123456"
+            placeholder="e.g. 7123456789:AAF..."
+        )
+        visitor_tg_chat = st.text_input(
+            "Your Chat ID",
+            value=st.session_state.get("visitor_tg_chat", ""),
+            placeholder="e.g. 123456789"
         )
 
-        st.session_state["visitor_wa_phone"] = visitor_phone.strip()
-        st.session_state["visitor_wa_key"] = visitor_key.strip()
+        st.session_state["visitor_tg_token"] = visitor_tg_token.strip()
+        st.session_state["visitor_tg_chat"] = visitor_tg_chat.strip()
 
-        if st.button("🧪 Test My WhatsApp Connection", use_container_width=True):
-            if visitor_phone and visitor_key:
-                with st.spinner("Sending test alert..."):
-                    ok, resp = send_whatsapp_message(visitor_phone, visitor_key, "🔔 *AI Trading Terminal:* Your WhatsApp is connected to receive live signals!")
+        if st.button("🔍 Auto-Detect My Chat ID", key="visitor_detect", use_container_width=True):
+            if visitor_tg_token:
+                with st.spinner("Looking for messages sent to your bot..."):
+                    ok, result = get_telegram_chat_id(visitor_tg_token.strip())
                     if ok:
-                        st.success("Test alert sent to your phone! Check WhatsApp.")
+                        detected_id, detected_name = result.split("|", 1)
+                        st.session_state["visitor_tg_chat"] = detected_id
+                        st.success(f"Chat ID detected: `{detected_id}` ({detected_name})")
+                        st.rerun()
+                    else:
+                        st.error(result)
+            else:
+                st.error("Enter your Bot Token first.")
+
+        if st.button("🧪 Test My Telegram Connection", use_container_width=True):
+            if visitor_tg_token and visitor_tg_chat:
+                with st.spinner("Sending test alert..."):
+                    ok, resp = send_telegram_message(visitor_tg_token, visitor_tg_chat, "🔔 *AI Trading Terminal:* Your Telegram is connected to receive live signals! ✅")
+                    if ok:
+                        st.success("Test alert sent! Check your Telegram.")
                     else:
                         st.error(f"Error: {resp}")
             else:
-                st.error("Please enter both your phone number and CallMeBot key.")
+                st.error("Please enter both your Bot Token and Chat ID.")
 
         # Discrete Admin Login at bottom
         st.divider()
@@ -308,8 +323,8 @@ active_gemini_key = cfg.get("gemini_api_key", "").strip()
 active_model_choice = cfg.get("model_choice", "gemini-flash-latest")
 theme = "dark" if "theme" not in locals() else theme
 auto_refresh_signals = False if "auto_refresh_signals" not in locals() else auto_refresh_signals
-active_wa_phone = st.session_state.get("visitor_wa_phone", cfg.get("whatsapp_phone", "")).strip()
-active_wa_key = st.session_state.get("visitor_wa_key", cfg.get("whatsapp_api_key", "")).strip()
+active_tg_token = cfg.get("telegram_bot_token", "").strip()
+active_tg_chat = st.session_state.get("visitor_tg_chat", cfg.get("telegram_chat_id", "")).strip()
 
 # ----------------- MAIN HEADER & LIVE TICKER TAPE -----------------
 st.title("📈 AI Trading Terminal: Live Real-Time Watching")
@@ -455,16 +470,16 @@ with tab_longterm:
         with col_hdr:
             st.subheader(f"🤖 Long-Term Investment Verdict: {ticker_lt}")
         with col_btn_fwd:
-            if st.button("📲 Forward to WhatsApp", key="fwd_lt", use_container_width=True):
-                if not active_wa_phone or not active_wa_key:
-                    st.error("Enter your WhatsApp phone number and CallMeBot API key in the sidebar first!")
+            if st.button("📬 Forward to Telegram", key="fwd_lt", use_container_width=True):
+                if not active_tg_token or not active_tg_chat:
+                    st.error("Set up your Telegram Bot Token & Chat ID in the sidebar first!")
                 else:
-                    wa_msg = format_signal_for_whatsapp(ticker_lt, res)
-                    ok, msg = send_whatsapp_message(active_wa_phone, active_wa_key, wa_msg)
+                    tg_msg = format_signal_for_telegram(ticker_lt, res)
+                    ok, msg = send_telegram_message(active_tg_token, active_tg_chat, tg_msg)
                     if ok:
-                        st.success("Forwarded to your WhatsApp! 📱")
+                        st.success("Forwarded to your Telegram! 📬")
                     else:
-                        st.error(f"WhatsApp Error: {msg}")
+                        st.error(f"Telegram Error: {msg}")
         st.markdown(res)
 
 # ====================================================================
@@ -595,16 +610,16 @@ with tab_shortterm:
         with col_hdr:
             st.subheader(f"🎯 Actionable MT5 Trade Setup: {asset_choice}")
         with col_btn_fwd:
-            if st.button("📲 Forward Setup to WhatsApp", key="fwd_mt5", use_container_width=True):
-                if not active_wa_phone or not active_wa_key:
-                    st.error("Enter your WhatsApp phone number and CallMeBot API key in the sidebar first!")
+            if st.button("📬 Forward Setup to Telegram", key="fwd_mt5", use_container_width=True):
+                if not active_tg_token or not active_tg_chat:
+                    st.error("Set up your Telegram Bot Token & Chat ID in the sidebar first!")
                 else:
                     live_p = technicals.get("current_price", "N/A") if 'technicals' in locals() and technicals else "N/A"
-                    wa_mt5_msg = format_mt5_signal_for_whatsapp(asset_choice, res_mt5, current_price=str(live_p))
-                    ok, msg = send_whatsapp_message(active_wa_phone, active_wa_key, wa_mt5_msg)
+                    tg_mt5_msg = format_mt5_signal_for_telegram(asset_choice, res_mt5, current_price=str(live_p))
+                    ok, msg = send_telegram_message(active_tg_token, active_tg_chat, tg_mt5_msg)
                     if ok:
-                        st.success("Trade setup forwarded to your WhatsApp! 📱")
+                        st.success("Trade setup forwarded to your Telegram! 📬")
                     else:
-                        st.error(f"WhatsApp Error: {msg}")
+                        st.error(f"Telegram Error: {msg}")
         
         st.markdown(res_mt5)
