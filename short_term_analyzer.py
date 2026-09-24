@@ -3,6 +3,7 @@ from duckduckgo_search import DDGS
 from google import genai
 import pandas as pd
 import numpy as np
+import time
 
 # Mapping of popular MT5 assets to yfinance tickers and human-readable names
 MT5_ASSET_MAP = {
@@ -153,15 +154,32 @@ Summarize in 2-3 bullet points why this setup is valid based on RSI, EMA alignme
 Disclaimer: Always note this is an AI trading signal and strict risk management must be exercised on MT5.
 """
 
-    try:
-        client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model=model_choice,
-            contents=prompt,
-        )
-        return response.text
-    except Exception as e:
-        err = str(e)
-        if "429" in err or "RESOURCE_EXHAUSTED" in err:
-            return "⚠️ **Rate Limit:** Gemini API rate limit reached. Please switch to `gemini-flash-latest` in the sidebar or wait 30 seconds."
-        return f"⚠️ **Error generating MT5 signal:** {err}"
+    # Call Gemini with auto-retry and model fallback
+    fallback_models = [model_choice, "gemini-2.5-flash", "gemini-flash-latest", "gemini-3.8-flash"]
+    seen = set()
+    models_to_try = [m for m in fallback_models if not (m in seen or seen.add(m))]
+
+    last_err = ""
+    for model in models_to_try:
+        for attempt in range(2):
+            try:
+                client = genai.Client(api_key=api_key)
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                )
+                if response and response.text:
+                    return response.text
+            except Exception as e:
+                last_err = str(e)
+                if "503" in last_err or "UNAVAILABLE" in last_err or "429" in last_err:
+                    time.sleep(1.5)
+                    continue
+                else:
+                    break
+
+    if "429" in last_err or "RESOURCE_EXHAUSTED" in last_err:
+        return "⚠️ **Rate Limit:** Gemini API rate limit reached. Please wait 30 seconds before retrying."
+    if "503" in last_err or "UNAVAILABLE" in last_err:
+        return "⚠️ **Google Gemini High Demand:** Google servers are temporarily experiencing high traffic spikes. Please click **Generate MT5 Signal** again in a few moments."
+    return f"⚠️ **Error generating MT5 signal:** {last_err}"

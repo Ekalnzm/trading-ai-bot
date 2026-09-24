@@ -3,6 +3,7 @@ from duckduckgo_search import DDGS
 from google import genai
 from google.genai import types
 import pandas as pd
+import time
 
 def get_stock_data(ticker_symbol):
     """Fetches fundamental and technical data for a given ticker (supports stocks and ETFs)."""
@@ -34,7 +35,8 @@ def get_stock_data(ticker_symbol):
                 "52 Week Low": info.get("fiftyTwoWeekLow", "N/A"),
                 "Current Price": info.get("currentPrice") or info.get("regularMarketPrice", "N/A"),
                 "Trailing P/E": info.get("trailingPE", "N/A"),
-                "Beta (3Y)": info.get("beta3Year", "N/A")
+                "Beta (3Y)": info.get("beta3Year", "N/A"),
+                "YTD Return": info.get("ytdReturn", "N/A")
             }
         else:
             fundamentals = {
@@ -46,12 +48,23 @@ def get_stock_data(ticker_symbol):
                 "Trailing P/E": info.get("trailingPE", "N/A"),
                 "Forward P/E": info.get("forwardPE", "N/A"),
                 "PEG Ratio": info.get("pegRatio", "N/A"),
-                "Price to Book": info.get("priceToBook", "N/A"),
+                "Price to Book (P/B)": info.get("priceToBook", "N/A"),
+                "Enterprise Value / EBITDA": info.get("enterpriseToEbitda", "N/A"),
+                "Operating Margin": info.get("operatingMargins", "N/A"),
+                "Profit Margin": info.get("profitMargins", "N/A"),
+                "Return on Equity (ROE)": info.get("returnOnEquity", "N/A"),
+                "Free Cash Flow": info.get("freeCashflow", "N/A"),
+                "Total Cash": info.get("totalCash", "N/A"),
+                "Total Debt": info.get("totalDebt", "N/A"),
+                "Current Ratio (Liquidity)": info.get("currentRatio", "N/A"),
                 "Debt to Equity": info.get("debtToEquity", "N/A"),
-                "Return on Equity": info.get("returnOnEquity", "N/A"),
                 "Revenue Growth (YoY)": info.get("revenueGrowth", "N/A"),
                 "Earnings Growth (YoY)": info.get("earningsGrowth", "N/A"),
                 "Dividend Yield": info.get("dividendYield", "N/A"),
+                "Payout Ratio": info.get("payoutRatio", "N/A"),
+                "Wall St Consensus Target": info.get("targetMeanPrice", "N/A"),
+                "Wall St Target Range": f"{info.get('targetLowPrice', 'N/A')} - {info.get('targetHighPrice', 'N/A')}",
+                "Wall St Recommendation": info.get("recommendationKey", "N/A"),
                 "52 Week High": info.get("fiftyTwoWeekHigh", "N/A"),
                 "52 Week Low": info.get("fiftyTwoWeekLow", "N/A"),
                 "Current Price": info.get("currentPrice") or info.get("regularMarketPrice", "N/A")
@@ -73,7 +86,7 @@ def get_recent_news(ticker_symbol, max_results=5):
         return [{"error": f"Could not fetch news: {str(e)}"}]
 
 def analyze_stock(ticker, api_key, model_choice='gemini-flash-latest'):
-    """Combines fundamental & technical data and asks Gemini for an investment signal."""
+    """Combines fundamental & technical data and asks Gemini for an institutional fundamental signal."""
     # 1. Gather Data
     fundamentals, hist = get_stock_data(ticker)
     if "error" in fundamentals:
@@ -81,7 +94,7 @@ def analyze_stock(ticker, api_key, model_choice='gemini-flash-latest'):
         
     news = get_recent_news(ticker)
     
-    # Calculate some basic technicals for context
+    # Calculate key technicals for price positioning
     if hist is not None and not hist.empty:
         current_price = hist['Close'].iloc[-1]
         ma_50 = round(hist['Close'].rolling(window=50).mean().iloc[-1], 2) if len(hist) >= 50 else "N/A"
@@ -96,24 +109,25 @@ def analyze_stock(ticker, api_key, model_choice='gemini-flash-latest'):
 
     # 2. Construct Prompt
     prompt = f"""
-You are an expert financial advisor specializing in long-term investing (1-5+ years horizon).
-The investor executes trades manually on the Moomoo trading platform and seeks disciplined, fundamental-oriented guidance.
+You are an institutional fundamental equity analyst & portfolio manager.
+Provide an in-depth, rigorous fundamental assessment for:
 
 Asset: {ticker} ({name})
 Asset Type: {fundamentals.get('Type')}
 
---- FUNDAMENTALS & METRICS ---
+--- COMPREHENSIVE FUNDAMENTALS & BALANCE SHEET ---
 """
     for k, v in fundamentals.items():
         prompt += f"{k}: {v}\n"
 
     prompt += f"""
---- TECHNICAL CONTEXT ---
+--- PRICE & MOVING AVERAGE CONTEXT ---
+Current Price: {current_price}
 50-Day Moving Average: {ma_50}
 200-Day Moving Average: {ma_200}
 52-Week Range: {fundamentals.get('52 Week Low')} - {fundamentals.get('52 Week High')}
 
---- RECENT NEWS & MARKET SENTIMENT ---
+--- RECENT NEWS & SENTIMENT ---
 """
     for n in news:
         if "error" in n:
@@ -122,27 +136,63 @@ Asset Type: {fundamentals.get('Type')}
              prompt += f"- {n.get('title')}: {n.get('snippet')}\n"
 
     prompt += f"""
---- ANALYSIS INSTRUCTIONS ---
-Provide an objective, structured report formatted in clean Markdown:
-1. **Executive Verdict**: Give a clear, bold **BUY**, **ACCUMULATE/DCA (Dollar-Cost Average)**, **HOLD**, or **SELL** recommendation for a long-term horizon.
-2. **Fundamental Health & Valuation**:
-   - {"For this ETF, analyze its expense ratio, index/sector exposure, and long-term diversification benefits." if is_etf else "Analyze the company's valuation (P/E, PEG), profitability, debt safety, and moat/growth potential."}
-3. **Long-Term Risk Factors**: What are the top 2-3 risks investors should be aware of?
-4. **Actionable Moomoo Plan**: Suggested entry strategy (e.g. Lump sum vs regular DCA, price levels to watch, or limit order advice on Moomoo).
+--- REQUIRED OUTPUT FORMAT (INSTITUTIONAL FUNDAMENTAL SCORECARD) ---
+Format your response in professional, clean Markdown with clear headings:
+
+### 1. 🏆 Executive Verdict & Fundamental Score
+- **Verdict**: State clearly in bold: **🟢 STRONG BUY / HEAVY DCA**, **🟢 ACCUMULATE / DCA**, **🟡 HOLD / WAIT FOR DIP**, or **🔴 OVERVALUED / REDUCE**.
+- **Fundamental Quality Score**: Rate from **1/10 to 10/10** with rationale.
+- **Investment Horizon**: Long-term (1-5+ years).
+
+### 2. 💎 Valuation & Fair Value Margin of Safety
+- **Estimated Fair Value Range**: Provide an estimated intrinsic fair value (or PEG/DCF baseline) vs Current Price ({current_price}).
+- **Discount / Premium**: State whether it is currently undervalued (at a discount) or trading at an extended premium.
+- **Wall Street Consensus**: Compare with Wall Street analyst target if available.
+
+### 3. 🎯 Concrete Buy & DCA Accumulation Zones (Exact Dollar Levels)
+Provide explicit price ranges so the investor knows exactly what to do:
+- **🟢 Heavy Buy / Value Zone**: (Specific price range where this asset is a great bargain)
+- **🟡 Standard DCA Zone**: (Specific price range for recurring weekly/monthly automated investing)
+- **🔴 Trim / Pause Zone**: (Price level where new capital should wait for a pullback)
+
+### 4. 📊 Fundamental Health & Competitive Moat
+{"- **ETF Efficiency & Strategy**: Analyze its expense ratio, index diversification, sector weightings, and resilience during bear markets." if is_etf else "- **Moat & Pricing Power**: What is the company's competitive advantage?\n- **Financial Health & Solvency**: Analyze cash flow, margins, and debt safety.\n- **Growth & Reinvestment**: Revenue and earnings growth trajectory."}
+
+### 5. ⚠️ Top 3 Fundamental Risks
+Detail the top 3 fundamental or macroeconomic risks that could impact this asset.
+
+### 6. 📱 Actionable Moomoo Execution Blueprint
+Specific advice on how to execute on Moomoo (e.g. Dollar-Cost Averaging schedule, limit orders at key support zones, or lump-sum timing).
 
 Disclaimer: Conclude with a standard reminder that this is AI-assisted research and not certified financial advice.
 """
 
-    # 3. Call Gemini
-    try:
-        client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model=model_choice,
-            contents=prompt,
-        )
-        return response.text
-    except Exception as e:
-        err_msg = str(e)
-        if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
-            return "⚠️ **Gemini Free Tier Quota Limit Reached:** You hit the free tier rate limit. Please switch to `gemini-flash-latest` in the sidebar or wait a minute before retrying."
-        return f"⚠️ **Error communicating with Gemini API:** {err_msg}"
+    # 3. Call Gemini with auto-retry and model fallback
+    fallback_models = [model_choice, "gemini-2.5-flash", "gemini-flash-latest", "gemini-3.8-flash"]
+    seen = set()
+    models_to_try = [m for m in fallback_models if not (m in seen or seen.add(m))]
+    
+    last_err = ""
+    for model in models_to_try:
+        for attempt in range(2):
+            try:
+                client = genai.Client(api_key=api_key)
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                )
+                if response and response.text:
+                    return response.text
+            except Exception as e:
+                last_err = str(e)
+                if "503" in last_err or "UNAVAILABLE" in last_err or "429" in last_err:
+                    time.sleep(1.5)
+                    continue
+                else:
+                    break
+
+    if "429" in last_err or "RESOURCE_EXHAUSTED" in last_err:
+        return "⚠️ **Gemini Free Tier Quota Limit Reached:** Google free tier limit reached. Please wait 1 minute before retrying."
+    if "503" in last_err or "UNAVAILABLE" in last_err:
+        return "⚠️ **Google Gemini High Demand:** Google servers are temporarily experiencing high traffic spikes. Please click **Analyze Fundamentals** again in a few moments."
+    return f"⚠️ **Error communicating with Gemini API:** {last_err}"
