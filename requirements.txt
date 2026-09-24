@@ -1,0 +1,8 @@
+streamlit
+yfinance
+google-genai
+pandas
+numpy
+plotly
+requests
+duckduckgo-search
