@@ -30,6 +30,20 @@ def send_telegram_message(bot_token: str, chat_id: str, message: str) -> tuple[b
     except Exception as e:
         return False, f"Connection error: {str(e)}"
 
+def get_bot_info(bot_token: str) -> dict:
+    """Returns bot details like username and first_name."""
+    if not bot_token:
+        return {}
+    url = f"https://api.telegram.org/bot{bot_token.strip()}/getMe"
+    try:
+        response = requests.get(url, timeout=8)
+        data = response.json()
+        if data.get("ok"):
+            return data.get("result", {})
+    except Exception:
+        pass
+    return {}
+
 
 def get_telegram_chat_id(bot_token: str) -> tuple[bool, str]:
     """

@@ -9,7 +9,13 @@ from short_term_analyzer import (
     MT5_ASSET_MAP
 )
 from config import load_config, save_config
-from notifier import send_telegram_message, get_telegram_chat_id, format_signal_for_telegram, format_mt5_signal_for_telegram
+from notifier import (
+    send_telegram_message,
+    get_telegram_chat_id,
+    get_bot_info,
+    format_signal_for_telegram,
+    format_mt5_signal_for_telegram
+)
 from scanner import (
     start_background_scanner,
     stop_background_scanner,
@@ -253,57 +259,63 @@ with st.sidebar:
 
         st.divider()
         st.header("📬 Receive Alerts on Telegram")
-        st.caption("Get AI trade signals delivered instantly to your Telegram:")
+        st.caption("Get AI trade signals delivered directly to your Telegram:")
 
-        with st.expander("📖 Quick Telegram Setup (2 Minutes)"):
-            st.markdown("""
-            **One-time setup to receive trade alerts on your phone:**
-            1. Open Telegram → search **@BotFather** → send `/newbot`
-            2. Choose a name & username for your bot
-            3. BotFather gives you a **Bot Token** — paste it below
-            4. Open your new bot in Telegram → press **Start** → send any message
-            5. Click **🔍 Auto-Detect Chat ID** below to find your Chat ID automatically
+        master_tg_token = cfg.get("telegram_bot_token", "").strip()
+
+        if master_tg_token:
+            bot_info = get_bot_info(master_tg_token)
+            bot_username = bot_info.get("username", "")
+            bot_display = f"@{bot_username}" if bot_username else "Our Official Trading Bot"
+            bot_link = f"https://t.me/{bot_username}" if bot_username else "#"
+
+            st.markdown(f"""
+            **How to connect in 10 seconds:**
+            1. Open our bot on Telegram: [👉 **{bot_display}**]({bot_link})
+            2. Tap **START** in Telegram
+            3. Click the button below to connect!
             """)
 
-        visitor_tg_token = st.text_input(
-            "Your Telegram Bot Token",
-            value=st.session_state.get("visitor_tg_token", ""),
-            type="password",
-            placeholder="e.g. 7123456789:AAF..."
-        )
-        visitor_tg_chat = st.text_input(
-            "Your Chat ID",
-            value=st.session_state.get("visitor_tg_chat", ""),
-            placeholder="e.g. 123456789"
-        )
+            connected_chat = st.session_state.get("visitor_tg_chat", "")
+            if connected_chat:
+                st.success(f"✅ **Connected to Telegram!** (ID: `{connected_chat}`)")
 
-        st.session_state["visitor_tg_token"] = visitor_tg_token.strip()
-        st.session_state["visitor_tg_chat"] = visitor_tg_chat.strip()
-
-        if st.button("🔍 Auto-Detect My Chat ID", key="visitor_detect", use_container_width=True):
-            if visitor_tg_token:
-                with st.spinner("Looking for messages sent to your bot..."):
-                    ok, result = get_telegram_chat_id(visitor_tg_token.strip())
+            col_detect, col_test = st.columns(2)
+            if col_detect.button("🔍 Connect / Detect", use_container_width=True):
+                with st.spinner("Connecting to your Telegram..."):
+                    ok, result = get_telegram_chat_id(master_tg_token)
                     if ok:
                         detected_id, detected_name = result.split("|", 1)
                         st.session_state["visitor_tg_chat"] = detected_id
-                        st.success(f"Chat ID detected: `{detected_id}` ({detected_name})")
+                        st.success(f"Connected: {detected_name} (`{detected_id}`)!")
                         st.rerun()
                     else:
-                        st.error(result)
-            else:
-                st.error("Enter your Bot Token first.")
+                        st.error("Please click the bot link above and tap START first, then click here!")
 
-        if st.button("🧪 Test My Telegram Connection", use_container_width=True):
-            if visitor_tg_token and visitor_tg_chat:
-                with st.spinner("Sending test alert..."):
-                    ok, resp = send_telegram_message(visitor_tg_token, visitor_tg_chat, "🔔 *AI Trading Terminal:* Your Telegram is connected to receive live signals! ✅")
-                    if ok:
-                        st.success("Test alert sent! Check your Telegram.")
-                    else:
-                        st.error(f"Error: {resp}")
-            else:
-                st.error("Please enter both your Bot Token and Chat ID.")
+            if col_test.button("🧪 Test Alert", use_container_width=True):
+                target_chat = st.session_state.get("visitor_tg_chat", "")
+                if not target_chat:
+                    st.error("Tap START on the bot and click 'Connect / Detect' first!")
+                else:
+                    with st.spinner("Sending test alert..."):
+                        ok, resp = send_telegram_message(
+                            master_tg_token,
+                            target_chat,
+                            "🔔 *Welcome to AI Trading Signals!* Your Telegram is successfully connected. You will now receive live buy/sell trade alerts! 📈"
+                        )
+                        if ok:
+                            st.success("Test alert sent! Check your Telegram.")
+                        else:
+                            st.error(f"Error: {resp}")
+
+            with st.expander("⚙️ Manual Chat ID (Optional)"):
+                manual_id = st.text_input("Enter Chat ID directly", value=st.session_state.get("visitor_tg_chat", ""), placeholder="e.g. 123456789")
+                if st.button("Save Chat ID", key="save_manual_chat"):
+                    st.session_state["visitor_tg_chat"] = manual_id.strip()
+                    st.success("Chat ID set!")
+                    st.rerun()
+        else:
+            st.info("ℹ️ Telegram bot is currently being initialized by Admin. Check back shortly!")
 
         # Discrete Admin Login at bottom
         st.divider()
