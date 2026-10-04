@@ -1,0 +1,39 @@
+name: 🤖 AI Trading Signal Bot — 24/7 Auto Scan
+
+on:
+  # Run automatically every 8 hours (3x per day: ~06:00, 14:00, 22:00 UTC)
+  schedule:
+    - cron: '0 6,14,22 * * *'
+
+  # Allow manual trigger from GitHub Actions tab anytime
+  workflow_dispatch:
+
+jobs:
+  scan-and-notify:
+    name: Run Market Scan & Send Telegram Alerts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐍 Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 📦 Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install yfinance google-genai requests duckduckgo-search pandas numpy
+
+      - name: 🤖 Run AI Signal Scanner
+        env:
+          GEMINI_API_KEY:      ${{ secrets.GEMINI_API_KEY }}
+          TELEGRAM_BOT_TOKEN:  ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:    ${{ secrets.TELEGRAM_CHAT_ID }}
+          MODEL_CHOICE:        ${{ secrets.MODEL_CHOICE }}
+          WATCHLIST:           ${{ secrets.WATCHLIST }}
+        run: python scan_and_notify.py
