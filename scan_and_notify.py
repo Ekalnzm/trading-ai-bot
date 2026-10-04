@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Standalone GitHub Actions scanner.
-Reads all credentials from environment variables (set as GitHub Secrets).
-Scans the watchlist, analyzes fundamentals, and sends
-BUY/DCA alerts to Telegram.
+Standalone GitHub Actions scanner with Dual-Key Failover.
+Reads credentials from environment variables (GitHub Secrets).
+Automatically fails over between GEMINI_API_KEY and GEMINI_API_KEY_2
+if one reaches its daily free rate limit!
 """
 
 import os
@@ -11,7 +11,7 @@ import sys
 import time
 import datetime
 
-# Ensure stdout/stderr handles UTF-8 smoothly without crashing on emojis
+# Ensure stdout/stderr handles UTF-8 smoothly
 if sys.stdout.encoding != 'utf-8':
     try:
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -19,8 +19,12 @@ if sys.stdout.encoding != 'utf-8':
     except Exception:
         pass
 
-# ── Credentials from GitHub Secrets (environment variables) ──────────────
-GEMINI_API_KEY   = os.environ.get("GEMINI_API_KEY", "").strip()
+# ── API Key Pool (Automatic Failover) ──────────────────────────────────
+GEMINI_KEYS = []
+for k in [os.environ.get("GEMINI_API_KEY", ""), os.environ.get("GEMINI_API_KEY_2", "")]:
+    if k.strip() and k.strip() not in GEMINI_KEYS:
+        GEMINI_KEYS.append(k.strip())
+
 TG_BOT_TOKEN     = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TG_CHAT_ID       = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 MODEL_CHOICE     = os.environ.get("MODEL_CHOICE", "").strip() or "gemini-flash-latest"
@@ -63,14 +67,20 @@ def send_telegram(message: str) -> bool:
         return False
 
 def analyze(ticker: str) -> str | None:
-    """Calls Gemini to analyze the ticker."""
-    try:
-        from analyzer import analyze_stock
-        result = analyze_stock(ticker, GEMINI_API_KEY, model_choice=MODEL_CHOICE)
-        return result
-    except Exception as e:
-        log(f"Error analyzing {ticker}: {e}")
-        return None
+    """Calls Gemini with automatic key rotation / failover if a key is rate-limited."""
+    from analyzer import analyze_stock
+    for idx, key in enumerate(GEMINI_KEYS):
+        try:
+            result = analyze_stock(ticker, key, model_choice=MODEL_CHOICE)
+            # If the result message indicates a quota exhaustion, try the backup key
+            if any(term in str(result) for term in ["Quota Limit", "RESOURCE_EXHAUSTED", "Rate Limit"]):
+                log(f"Key #{idx+1} reached quota limit. Rotating to next key...")
+                continue
+            return result
+        except Exception as e:
+            log(f"Key #{idx+1} error for {ticker}: {e}. Rotating to backup key...")
+            continue
+    return None
 
 def is_buy_signal(text: str) -> bool:
     keywords = ["BUY", "ACCUMULATE", "DCA", "STRONG BUY", "HEAVY DCA"]
@@ -93,13 +103,13 @@ def main():
     log("AI Trading Signal Bot - GitHub Actions Scan Started")
     log(f"Watchlist: {', '.join(WATCHLIST)}")
     log(f"AI Model:  {MODEL_CHOICE}")
-    log(f"Has Gemini Key:   {'Yes' if bool(GEMINI_API_KEY) else 'NO (Missing!)'}")
+    log(f"Gemini API Keys Available: {len(GEMINI_KEYS)} (Multi-Key Failover Active)")
     log(f"Has Telegram Bot: {'Yes' if bool(TG_BOT_TOKEN) else 'NO (Missing!)'}")
     log(f"Has Chat ID:      {'Yes' if bool(TG_CHAT_ID) else 'NO (Missing!)'}")
     log("=" * 60)
 
-    if not GEMINI_API_KEY:
-        log("ERROR: GEMINI_API_KEY secret is missing or empty. Please set GEMINI_API_KEY in Repository Secrets.")
+    if not GEMINI_KEYS:
+        log("ERROR: No GEMINI_API_KEY found in repository secrets. Aborting.")
         sys.exit(1)
 
     alerts_sent = 0
@@ -132,7 +142,7 @@ def main():
             log(f"{ticker}: Neutral/Hold - no alert sent.")
             scan_summary.append(f"• {ticker}: Neutral / Hold")
 
-        # Pause briefly between tickers
+        # Pause briefly between tickers to prevent burst limits
         time.sleep(3)
 
     # Send summary message to Telegram
