@@ -46,9 +46,15 @@ def send_telegram(message: str) -> bool:
     if not TG_BOT_TOKEN or not TG_CHAT_ID:
         log("Telegram credentials missing or empty — alert not sent.")
         return False
-    url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
+
+    token = TG_BOT_TOKEN.strip().strip("\"'")
+    if token.lower().startswith("bot"):
+        token = token[3:]
+    chat_id = TG_CHAT_ID.strip().strip("\"'")
+
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {
-        "chat_id": TG_CHAT_ID,
+        "chat_id": chat_id,
         "text": message,
         "parse_mode": "Markdown",
         "disable_web_page_preview": True
@@ -60,7 +66,17 @@ def send_telegram(message: str) -> bool:
             log("Telegram alert delivered successfully.")
             return True
         else:
-            log(f"Telegram API response: {data.get('description')}")
+            err_desc = str(data.get("description", ""))
+            if "not found" in err_desc.lower():
+                log("Telegram API Error: 'Not Found'. Your TELEGRAM_BOT_TOKEN in GitHub Secrets is invalid or has a typo. Copy the exact HTTP API token from @BotFather.")
+                return False
+            if "parse" in err_desc.lower() or "entity" in err_desc.lower():
+                payload.pop("parse_mode", None)
+                retry_resp = requests.post(url, json=payload, timeout=20)
+                if retry_resp.json().get("ok"):
+                    log("Telegram alert delivered successfully (plain-text fallback).")
+                    return True
+            log(f"Telegram API response: {err_desc}")
             return False
     except Exception as e:
         log(f"Telegram request failed: {e}")
