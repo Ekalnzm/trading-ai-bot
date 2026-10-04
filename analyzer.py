@@ -107,6 +107,15 @@ def analyze_stock(ticker, api_key, model_choice='gemini-flash-latest'):
     is_etf = fundamentals.get("Type") == "ETF (Exchange Traded Fund)"
     name = fundamentals.get("Fund Name") if is_etf else fundamentals.get("Company Name", ticker)
 
+    if is_etf:
+        moat_section = "- **ETF Efficiency & Strategy**: Analyze its expense ratio, index diversification, sector weightings, and resilience during bear markets."
+    else:
+        moat_section = (
+            "- **Moat & Pricing Power**: What is the company's competitive advantage?\n"
+            "- **Financial Health & Solvency**: Analyze cash flow, margins, and debt safety.\n"
+            "- **Growth & Reinvestment**: Revenue and earnings growth trajectory."
+        )
+
     # 2. Construct Prompt
     prompt = f"""
 You are an institutional fundamental equity analyst & portfolio manager.
@@ -156,7 +165,7 @@ Provide explicit price ranges so the investor knows exactly what to do:
 - **🔴 Trim / Pause Zone**: (Price level where new capital should wait for a pullback)
 
 ### 4. 📊 Fundamental Health & Competitive Moat
-{"- **ETF Efficiency & Strategy**: Analyze its expense ratio, index diversification, sector weightings, and resilience during bear markets." if is_etf else "- **Moat & Pricing Power**: What is the company's competitive advantage?\n- **Financial Health & Solvency**: Analyze cash flow, margins, and debt safety.\n- **Growth & Reinvestment**: Revenue and earnings growth trajectory."}
+{moat_section}
 
 ### 5. ⚠️ Top 3 Fundamental Risks
 Detail the top 3 fundamental or macroeconomic risks that could impact this asset.
